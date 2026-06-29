@@ -23,7 +23,7 @@ export default function Mining() {
 
   useEffect(() => { loadData(); }, []);
   const loadData = async () => {
-    try { setData(await apiFetch('/mining')); } catch(e) {} finally { setLoading(false); }
+    try { setData(await apiFetch('/mining')); } catch(e) { console.error('Failed to load mining data', e); } finally { setLoading(false); }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -32,7 +32,7 @@ export default function Mining() {
       await apiFetch('/mining', { method: 'POST', body: JSON.stringify(formData) });
       setIsModalOpen(false);
       loadData();
-    } catch(e) {}
+    } catch(e) { console.error('Failed to submit mining record', e); }
   };
 
   return (

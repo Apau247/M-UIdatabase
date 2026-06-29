@@ -3,66 +3,14 @@ import {
   X, 
   Send, 
   Bot, 
-  Sparkles, 
-  Database,
-  Terminal,
-  RefreshCw,
-  Search
+  Sparkles
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { GoogleGenAI, Type, FunctionDeclaration } from "@google/genai";
-import { apiFetch } from '../lib/api';
+import { motion } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 
 interface AIAssistantProps {
   onClose: () => void;
 }
-
-const SYSTEM_PROMPT = `You are the MIU Intelligence Agent (MIA), an AI assistant for the Mining & Industry Unit Database.
-Your goal is to help users query, analyze, and understand mining and industry data.
-
-DATABASE SCHEMA:
-- stakeholders: id, full_name, position, organization, email, phone, category
-- mining_data: id, mineral_type, production_volume, export_volume, royalties, corporate_tax, dividend_tax, reserve_value, equity_stake, date_recorded
-- industry_data: id, sector, production_volume, import_volume, export_volume, reporting_period
-- market_prices: id, commodity_name, price, date_time
-
-CAPABILITIES:
-1. Query Data: You can fetch real-time data from the database using natural language.
-2. Summarization: You can provide summaries of production, exports, and market trends.
-3. SQL Conversion: If asked for a query, you can generate and execute it.
-
-GUIDELINES:
-- Be professional, technical yet accessible.
-- Always provide units (e.g., Tons, USD) if available.
-- If you don't know something, ask for clarification or use the search tool.
-- Use the tools provided to fetch REAL data. Do not make up numbers.
-`;
-
-const schemaTools: FunctionDeclaration[] = [
-  {
-    name: "executeQuery",
-    description: "Executes a SQL SELECT query against the Mining & Industry Database and returns the results.",
-    parameters: {
-      type: Type.OBJECT,
-      properties: {
-        sql: {
-          type: Type.STRING,
-          description: "The SQL SELECT query to execute. Example: 'SELECT * FROM mining_data WHERE mineral_type = \"Gold\"'"
-        }
-      },
-      required: ["sql"]
-    }
-  },
-  {
-     name: "getMarketStatus",
-     description: "Fetches current market prices for key minerals.",
-     parameters: {
-       type: Type.OBJECT,
-       properties: {}
-     }
-  }
-];
 
 export default function AIAssistant({ onClose }: AIAssistantProps) {
   const [messages, setMessages] = useState<any[]>([
@@ -87,56 +35,15 @@ export default function AIAssistant({ onClose }: AIAssistantProps) {
     setIsTyping(true);
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      const chat = ai.chats.create({
-        model: "gemini-3.1-pro-preview",
-        config: {
-          systemInstruction: SYSTEM_PROMPT,
-          tools: [{ functionDeclarations: schemaTools }]
-        }
+      const token = localStorage.getItem('token');
+      const res = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ message: userMessage })
       });
-
-      // Prepare history
-      const history = messages.map(m => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: m.content }]
-      }));
-
-      // In a real app we'd pass history to chat. But for simplicity here we'll just send the message.
-      // We'll simulate a multi-turn by just sending the message with tool support.
-      
-      let response = await chat.sendMessage({ message: userMessage });
-      
-      // Handle Function Calls
-      let toolInvocations = response.functionCalls;
-      
-      while (toolInvocations && toolInvocations.length > 0) {
-        const toolResponses = await Promise.all(toolInvocations.map(async (call) => {
-          if (call.name === 'executeQuery') {
-            try {
-              const data = await apiFetch('/explorer', {
-                method: 'POST',
-                body: JSON.stringify({ query: (call.args as any).sql })
-              });
-              return { name: call.name, response: { content: data } };
-            } catch (err: any) {
-              return { name: call.name, response: { error: err.message } };
-            }
-          }
-          if (call.name === 'getMarketStatus') {
-            const data = await apiFetch('/prices');
-            return { name: call.name, response: { content: data } };
-          }
-          return { name: call.name, response: { error: "Unknown tool" } };
-        }));
-
-        response = await chat.sendMessage({ 
-          message: toolResponses.map(r => ({ functionResponse: r })) as any 
-        });
-        toolInvocations = response.functionCalls;
-      }
-
-      setMessages(prev => [...prev, { role: 'assistant', content: response.text }]);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setMessages(prev => [...prev, { role: 'assistant', content: data.text }]);
     } catch (error: any) {
       console.error(error);
       setMessages(prev => [...prev, { role: 'assistant', content: "I'm sorry, I encountered an error processing your request. Please ensure my connection to the database is stable." }]);

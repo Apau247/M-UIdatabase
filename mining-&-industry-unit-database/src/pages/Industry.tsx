@@ -19,7 +19,7 @@ export default function Industry() {
 
   useEffect(() => { loadData(); }, []);
   const loadData = async () => {
-    try { setData(await apiFetch('/industry')); } catch(e) {} finally { setLoading(false); }
+    try { setData(await apiFetch('/industry')); } catch(e) { console.error('Failed to load industry data', e); } finally { setLoading(false); }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -28,7 +28,7 @@ export default function Industry() {
       await apiFetch('/industry', { method: 'POST', body: JSON.stringify(formData) });
       setIsModalOpen(false);
       loadData();
-    } catch(e) {}
+    } catch(e) { console.error('Failed to submit industry record', e); }
   };
 
   return (

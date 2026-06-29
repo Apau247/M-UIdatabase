@@ -4,8 +4,8 @@ import { motion } from 'motion/react';
 import { useAuth } from '../App';
 
 export default function Login() {
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin123'); // Default from seed
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
@@ -73,7 +73,7 @@ export default function Login() {
               >
                 {loading ? 'AUTHENTICATING...' : (
                   <>
-                    Infiltrate System <ArrowRight className="w-5 h-5" />
+                    Sign In <ArrowRight className="w-5 h-5" />
                   </>
                 )}
               </button>

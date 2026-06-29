@@ -10,7 +10,10 @@ import db from "./server/db.ts";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const JWT_SECRET = process.env.JWT_SECRET || "mining-key-2025";
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error("JWT_SECRET environment variable is required");
+}
 
 async function startServer() {
   const app = express();
@@ -128,19 +131,111 @@ async function startServer() {
   });
 
   // Data Explorer (Flexible Query)
-  // SECURITY NOTE: This is a demo. Raw SQL execution is dangerous.
-  // We'll restrict this to Admin only and maybe validate table names.
+  // Only allow SELECT queries for the data explorer
   app.post("/api/explorer", authenticateToken, authorize(['Admin', 'Analyst']), (req, res) => {
     const { query } = req.body;
     try {
-      // Very basic validation to prevent common destructive operations if not intended
-      if (/DROP|DELETE|UPDATE|INSERT|TRUNCATE/i.test(query) && (req as any).user.role !== 'Admin') {
-        return res.status(403).json({ error: "Only Admins can perform destructive queries" });
+      const trimmed = query.trim();
+      if (!/^SELECT\b/i.test(trimmed)) {
+        return res.status(403).json({ error: "Only SELECT queries are allowed" });
       }
       const rows = db.prepare(query).all();
       res.json(rows);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
+    }
+  });
+
+  // AI Assistant Proxy - forwards requests to Gemini API securely (server-side)
+  app.post("/api/ai", authenticateToken, async (req, res) => {
+    const systemPrompt = `You are the MIU Intelligence Agent (MIA), an AI assistant for the Mining & Industry Unit Database.
+Your goal is to help users query, analyze, and understand mining and industry data.
+
+DATABASE SCHEMA:
+- stakeholders: id, full_name, position, organization, email, phone, category
+- mining_data: id, mineral_type, production_volume, export_volume, royalties, corporate_tax, dividend_tax, reserve_value, equity_stake, date_recorded
+- industry_data: id, sector, production_volume, import_volume, export_volume, reporting_period
+- market_prices: id, commodity_name, price, date_time
+
+CAPABILITIES:
+1. Query Data: You can fetch real-time data from the database using natural language.
+2. Summarization: You can provide summaries of production, exports, and market trends.
+3. SQL Conversion: If asked for a query, you can generate and execute it.
+
+GUIDELINES:
+- Be professional, technical yet accessible.
+- Always provide units (e.g., Tons, USD) if available.
+- If you don't know something, ask for clarification or use the search tool.
+- Use the tools provided to fetch REAL data. Do not make up numbers.`;
+
+    try {
+      const { message } = req.body;
+      const { GoogleGenAI, Type } = await import("@google/genai");
+
+      const schemaTools = [
+        {
+          name: "executeQuery",
+          description: "Executes a SQL SELECT query against the Mining & Industry Database and returns the results.",
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              sql: {
+                type: Type.STRING,
+                description: "The SQL SELECT query to execute. Example: 'SELECT * FROM mining_data WHERE mineral_type = \"Gold\"'"
+              }
+            },
+            required: ["sql"]
+          }
+        },
+        {
+          name: "getMarketStatus",
+          description: "Fetches current market prices for key minerals.",
+          parameters: {
+            type: Type.OBJECT,
+            properties: {}
+          }
+        }
+      ];
+
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const chat = ai.chats.create({
+        model: "gemini-3.1-pro-preview",
+        config: {
+          systemInstruction: systemPrompt,
+          tools: [{ functionDeclarations: schemaTools }]
+        }
+      });
+
+      let response = await chat.sendMessage({ message });
+      let toolInvocations = response.functionCalls;
+
+      while (toolInvocations && toolInvocations.length > 0) {
+        const toolResponses = await Promise.all(toolInvocations.map(async (call) => {
+          if (call.name === 'executeQuery') {
+            try {
+              const data = db.prepare((call.args as any).sql).all();
+              return { name: call.name, response: { content: data } };
+            } catch (err: any) {
+              return { name: call.name, response: { error: err.message } };
+            }
+          }
+          if (call.name === 'getMarketStatus') {
+            const data = db.prepare('SELECT * FROM market_prices ORDER BY date_time DESC LIMIT 100').all();
+            return { name: call.name, response: { content: data } };
+          }
+          return { name: call.name, response: { error: "Unknown tool" } };
+        }));
+
+        response = await chat.sendMessage({
+          message: toolResponses.map(r => ({ functionResponse: r })) as any
+        });
+        toolInvocations = response.functionCalls;
+      }
+
+      res.json({ text: response.text });
+    } catch (error: any) {
+      console.error('AI proxy error:', error);
+      res.status(500).json({ error: error.message });
     }
   });
 

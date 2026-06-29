@@ -11,7 +11,7 @@ export default function Prices() {
 
   useEffect(() => { loadData(); }, []);
   const loadData = async () => {
-    try { setPrices(await apiFetch('/prices')); } catch(e) {} finally { setLoading(false); }
+    try { setPrices(await apiFetch('/prices')); } catch(e) { console.error('Failed to load prices', e); } finally { setLoading(false); }
   };
 
   const simulateUpdate = async () => {
@@ -21,7 +21,7 @@ export default function Prices() {
     try {
       await apiFetch('/prices', { method: 'POST', body: JSON.stringify({ commodity_name: commodities[r], price: p }) });
       loadData();
-    } catch(e) {}
+    } catch(e) { console.error('Failed to simulate price update', e); }
   };
 
   return (
